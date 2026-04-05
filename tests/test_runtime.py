@@ -27,3 +27,19 @@ def test_build_instance_env_sets_isolated_directories(tmp_path) -> None:
     assert env["HOME"].endswith("acct-001/home")
     assert env["XDG_CONFIG_HOME"].endswith("acct-001/home/.config")
     assert env["CODEX_SWITCH_ACTIVE_INSTANCE"] == "acct-001"
+
+
+def test_build_instance_env_with_empty_parent_env_does_not_inherit_process_env(
+    tmp_path, monkeypatch
+) -> None:
+    monkeypatch.setenv("PATH", "/inherited/bin")
+
+    env = build_instance_env(
+        instance_name="acct-002",
+        instance_home=tmp_path / "instances" / "acct-002" / "home",
+        parent_env={},
+    )
+
+    assert env["HOME"].endswith("acct-002/home")
+    assert env["CODEX_SWITCH_ACTIVE_INSTANCE"] == "acct-002"
+    assert env.get("PATH") is None

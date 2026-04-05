@@ -26,7 +26,7 @@ def build_instance_env(
     instance_home: Path,
     parent_env: dict[str, str] | None = None,
 ) -> dict[str, str]:
-    env = dict(parent_env or os.environ)
+    env = dict(os.environ if parent_env is None else parent_env)
     env["HOME"] = str(instance_home)
     env["XDG_CONFIG_HOME"] = str(instance_home / ".config")
     env["XDG_CACHE_HOME"] = str(instance_home / ".cache")
