@@ -6,9 +6,31 @@ from codex_switch.models import AppConfig
 from codex_switch.paths import config_path
 
 
+class ConfigError(RuntimeError):
+    pass
+
+
+class ConfigNotInitializedError(ConfigError):
+    pass
+
+
+class ConfigCorruptError(ConfigError):
+    pass
+
+
 def load_config() -> AppConfig:
-    payload = json.loads(config_path().read_text())
-    return AppConfig.from_dict(payload)
+    path = config_path()
+    try:
+        payload = json.loads(path.read_text())
+    except FileNotFoundError as exc:
+        raise ConfigNotInitializedError(str(path)) from exc
+    except (json.JSONDecodeError, OSError) as exc:
+        raise ConfigCorruptError(str(path)) from exc
+
+    try:
+        return AppConfig.from_dict(payload)
+    except (TypeError, ValueError, KeyError) as exc:
+        raise ConfigCorruptError(str(path)) from exc
 
 
 def save_config(config: AppConfig) -> None:
