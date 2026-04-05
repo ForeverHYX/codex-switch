@@ -10,6 +10,8 @@ def test_find_real_codex_skips_wrapper_directory(tmp_path, monkeypatch) -> None:
     real_bin.mkdir(parents=True)
     (wrapper_bin / "codex").write_text("#!/bin/sh\n")
     (real_bin / "codex").write_text("#!/bin/sh\n")
+    (wrapper_bin / "codex").chmod(0o755)
+    (real_bin / "codex").chmod(0o755)
     monkeypatch.setenv("PATH", f"{wrapper_bin}:{real_bin}")
 
     assert find_real_codex(wrapper_bin) == real_bin / "codex"

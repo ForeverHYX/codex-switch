@@ -15,7 +15,7 @@ def find_real_codex(wrapper_dir: Path) -> Path:
 
     for entry in path_entries:
         candidate = Path(entry) / "codex"
-        if candidate.exists():
+        if candidate.exists() and os.access(candidate, os.X_OK):
             return candidate.resolve()
 
     raise FileNotFoundError("Unable to locate the real codex binary outside the shim directory")
