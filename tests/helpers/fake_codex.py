@@ -38,7 +38,6 @@ def main() -> int:
     instance = os.environ["CODEX_SWITCH_ACTIVE_INSTANCE"]
     home = Path(os.environ["HOME"])
     argv = sys.argv[1:]
-    stdin_payload = sys.stdin.read()
 
     if argv[:2] == ["login", "status"]:
         return _handle_login_status(home)
@@ -52,6 +51,19 @@ def main() -> int:
         _clear_logged_in(home)
         return 0
 
+    if sys.stdin.isatty():
+        print("OpenAI Codex ready", flush=True)
+        for raw_line in sys.stdin:
+            line = raw_line.strip()
+            if line == "/status":
+                quota_path = home / "quota.txt"
+                quota = quota_path.read_text().strip() if quota_path.exists() else "1"
+                print(f"Requests remaining: {quota}", flush=True)
+            elif line == "/exit":
+                return 0
+        return 0
+
+    stdin_payload = sys.stdin.read()
     if "/status" in stdin_payload:
         quota_path = home / "quota.txt"
         quota = quota_path.read_text().strip() if quota_path.exists() else "1"
