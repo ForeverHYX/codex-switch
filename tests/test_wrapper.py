@@ -97,11 +97,42 @@ def test_wrapper_reports_missing_real_codex_binary(tmp_path, monkeypatch, capsys
     )
     monkeypatch.setattr(
         "codex_switch.wrapper.probe_all_instances",
-        lambda config: (_ for _ in ()).throw(FileNotFoundError("missing codex")),
+        lambda config: [
+            type("Result", (), {"instance_name": "acct-001", "order": 1, "quota_remaining": 10, "ok": True})(),
+        ],
+    )
+    monkeypatch.setattr(
+        "codex_switch.wrapper.subprocess.run",
+        lambda *args, **kwargs: (_ for _ in ()).throw(FileNotFoundError("missing codex")),
     )
 
     exit_code = main(["review"])
 
     captured = capsys.readouterr()
     assert exit_code == 1
-    assert "Unable to locate the real Codex binary" in captured.err
+    assert "Unable to launch the real Codex binary" in captured.err
+
+
+def test_wrapper_reports_missing_selected_instance(tmp_path, monkeypatch, capsys) -> None:
+    monkeypatch.setenv("CODEX_SWITCH_HOME", str(tmp_path))
+
+    save_config(
+        AppConfig(
+            real_codex_path="/usr/bin/python3",
+            instances=[
+                InstanceConfig(name="acct-001", order=1, home_dir=str(tmp_path / "acct-001")),
+            ],
+        )
+    )
+    monkeypatch.setattr(
+        "codex_switch.wrapper.probe_all_instances",
+        lambda config: [
+            type("Result", (), {"instance_name": "acct-999", "order": 1, "quota_remaining": 10, "ok": True})(),
+        ],
+    )
+
+    exit_code = main(["review"])
+
+    captured = capsys.readouterr()
+    assert exit_code == 1
+    assert "Selected instance 'acct-999' is not present in the config" in captured.err

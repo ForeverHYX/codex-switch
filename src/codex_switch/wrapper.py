@@ -27,6 +27,18 @@ def _fail(message: str) -> int:
     return 1
 
 
+def _resolve_instance(config, selected_instance_name: str):
+    instance = next(
+        (item for item in config.instances if item.name == selected_instance_name),
+        None,
+    )
+    if instance is None:
+        raise LookupError(
+            f"Selected instance {selected_instance_name!r} is not present in the config"
+        )
+    return instance
+
+
 def main(argv: list[str] | None = None) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
     if args and args[0] in MANAGED_COMMANDS:
@@ -41,10 +53,14 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         selected = select_best_instance(probe_all_instances(config))
-        instance = next(item for item in config.instances if item.name == selected.instance_name)
     except FileNotFoundError as exc:
         return _fail(f"Unable to locate the real Codex binary: {exc}")
     except (RuntimeError, StopIteration) as exc:
+        return _fail(str(exc))
+
+    try:
+        instance = _resolve_instance(config, selected.instance_name)
+    except LookupError as exc:
         return _fail(str(exc))
 
     env = build_instance_env(
@@ -53,11 +69,14 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     command = REAL_CODEX_ARGV or [config.real_codex_path]
-    completed = subprocess.run(
-        [*command, *args],
-        env=env,
-        check=False,
-    )
+    try:
+        completed = subprocess.run(
+            [*command, *args],
+            env=env,
+            check=False,
+        )
+    except FileNotFoundError as exc:
+        return _fail(f"Unable to launch the real Codex binary: {exc}")
     return completed.returncode
 
 
