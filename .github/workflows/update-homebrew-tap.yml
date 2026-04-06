@@ -1,0 +1,100 @@
+name: Update Homebrew Tap
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Package version without a leading v, for example 0.1.0
+        required: true
+
+jobs:
+  update-tap:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Resolve version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "release" ]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+          else
+            VERSION="${{ github.event.inputs.version }}"
+          fi
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for PyPI release
+        run: |
+          python - <<'PY'
+          import json
+          import sys
+          import time
+          import urllib.request
+
+          version = "${{ steps.version.outputs.version }}"
+          url = "https://pypi.org/pypi/codex-switch-cli/json"
+
+          for _ in range(30):
+              with urllib.request.urlopen(url) as response:
+                  data = json.load(response)
+              if version in data["releases"]:
+                  sys.exit(0)
+              time.sleep(10)
+
+          raise SystemExit(f"codex-switch-cli {version} is not visible on PyPI yet")
+          PY
+
+      - name: Render Homebrew formula
+        run: |
+          python scripts/render_homebrew_formula.py \
+            --version "${{ steps.version.outputs.version }}" \
+            --output /tmp/homebrew-tap/Formula/codex-switch-cli.rb
+
+      - name: Add tap README
+        run: |
+          mkdir -p /tmp/homebrew-tap
+          cat > /tmp/homebrew-tap/README.md <<'EOF'
+          # homebrew-tap
+
+          Install:
+
+          ```bash
+          brew tap ForeverHYX/tap
+          brew install codex-switch-cli
+          ```
+          EOF
+
+      - name: Check out tap repository
+        env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          git clone "https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/ForeverHYX/homebrew-tap.git" /tmp/homebrew-tap-repo
+
+      - name: Update tap contents
+        run: |
+          mkdir -p /tmp/homebrew-tap-repo/Formula
+          cp /tmp/homebrew-tap/Formula/codex-switch-cli.rb /tmp/homebrew-tap-repo/Formula/codex-switch-cli.rb
+          cp /tmp/homebrew-tap/README.md /tmp/homebrew-tap-repo/README.md
+
+      - name: Commit and push tap update
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          cd /tmp/homebrew-tap-repo
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add README.md Formula/codex-switch-cli.rb
+          git diff --cached --quiet && exit 0
+          git commit -m "Update codex-switch-cli ${VERSION}"
+          git push origin HEAD:main
