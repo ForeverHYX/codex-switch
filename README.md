@@ -35,4 +35,4 @@ instance with the most remaining quota.
 
 ## Public design
 
-See [docs/design/codex-switch-design.md](/Users/foreverhyx/codex-switch/.worktrees/codex-switch-cli/docs/design/codex-switch-design.md) for the public summary of the approved behavior.
+See [docs/design/codex-switch-design.md](docs/design/codex-switch-design.md) for the public summary of the approved behavior.
