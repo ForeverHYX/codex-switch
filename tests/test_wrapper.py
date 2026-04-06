@@ -1,6 +1,8 @@
 import json
 from pathlib import Path
 
+import pytest
+
 from codex_switch.config import save_config
 from codex_switch.models import AppConfig, InstanceConfig
 from codex_switch.wrapper import main
@@ -42,3 +44,64 @@ def test_wrapper_forwards_original_args_to_best_instance(tmp_path, monkeypatch) 
     assert exit_code == 0
     assert payload["argv"] == ["review", "--json"]
     assert payload["instance"] == "acct-002"
+
+
+@pytest.mark.parametrize("command", ["login", "logout"])
+def test_wrapper_blocks_managed_commands(command, capsys) -> None:
+    exit_code = main([command, "acct-001"])
+
+    captured = capsys.readouterr()
+    assert exit_code == 1
+    assert "Use `codex-switch login` or `codex-switch logout` for account management" in captured.err
+
+
+def test_wrapper_reports_missing_config(tmp_path, monkeypatch, capsys) -> None:
+    monkeypatch.setenv("CODEX_SWITCH_HOME", str(tmp_path))
+
+    exit_code = main(["review"])
+
+    captured = capsys.readouterr()
+    assert exit_code == 1
+    assert "Codex Switch is not initialized" in captured.err
+
+
+def test_wrapper_reports_routing_failure(tmp_path, monkeypatch, capsys) -> None:
+    monkeypatch.setenv("CODEX_SWITCH_HOME", str(tmp_path))
+
+    save_config(
+        AppConfig(
+            real_codex_path="/usr/bin/python3",
+            instances=[
+                InstanceConfig(name="acct-001", order=1, home_dir=str(tmp_path / "acct-001"), enabled=False),
+            ],
+        )
+    )
+
+    exit_code = main(["review"])
+
+    captured = capsys.readouterr()
+    assert exit_code == 1
+    assert "No usable Codex account instances are available" in captured.err
+
+
+def test_wrapper_reports_missing_real_codex_binary(tmp_path, monkeypatch, capsys) -> None:
+    monkeypatch.setenv("CODEX_SWITCH_HOME", str(tmp_path))
+
+    save_config(
+        AppConfig(
+            real_codex_path="/usr/bin/python3",
+            instances=[
+                InstanceConfig(name="acct-001", order=1, home_dir=str(tmp_path / "acct-001")),
+            ],
+        )
+    )
+    monkeypatch.setattr(
+        "codex_switch.wrapper.probe_all_instances",
+        lambda config: (_ for _ in ()).throw(FileNotFoundError("missing codex")),
+    )
+
+    exit_code = main(["review"])
+
+    captured = capsys.readouterr()
+    assert exit_code == 1
+    assert "Unable to locate the real Codex binary" in captured.err
