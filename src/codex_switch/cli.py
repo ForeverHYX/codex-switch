@@ -54,5 +54,15 @@ def list_instances() -> None:
         typer.echo(f"{instance.name}\t{instance.home_dir}")
 
 
+@app.command()
+def login(instance_name: str) -> None:
+    typer.echo(f"Login flow for {instance_name} will run through the isolated instance environment")
+
+
+@app.command()
+def logout(instance_name: str) -> None:
+    typer.echo(f"Logout flow for {instance_name} will run through the isolated instance environment")
+
+
 if __name__ == "__main__":
     app()
