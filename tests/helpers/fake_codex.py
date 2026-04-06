@@ -34,10 +34,81 @@ def _handle_login_status(home: Path) -> int:
     return 1
 
 
+def _handle_app_server(home: Path) -> int:
+    for raw_line in sys.stdin:
+        line = raw_line.strip()
+        if not line:
+            continue
+
+        request = json.loads(line)
+        method = request.get("method")
+        request_id = request.get("id")
+
+        if method == "initialize":
+            print(
+                json.dumps(
+                    {
+                        "id": request_id,
+                        "result": {
+                            "userAgent": "fake-codex/0.0.0",
+                            "codexHome": str(home / ".codex"),
+                            "platformFamily": "unix",
+                            "platformOs": "macos",
+                        },
+                    }
+                ),
+                flush=True,
+            )
+            continue
+
+        if method == "account/rateLimits/read":
+            payload_path = home / "rate-limits.json"
+            payload = (
+                json.loads(payload_path.read_text())
+                if payload_path.exists()
+                else {
+                    "rateLimits": {
+                        "limitId": "codex",
+                        "limitName": None,
+                        "planType": "plus",
+                        "primary": {
+                            "usedPercent": 40,
+                            "windowDurationMins": 300,
+                            "resetsAt": 1_800_000_000,
+                        },
+                        "secondary": {
+                            "usedPercent": 20,
+                            "windowDurationMins": 10080,
+                            "resetsAt": 1_800_500_000,
+                        },
+                    }
+                }
+            )
+            print(json.dumps({"id": request_id, "result": payload}), flush=True)
+            continue
+
+        print(
+            json.dumps(
+                {
+                    "id": request_id,
+                    "error": {
+                        "code": -32601,
+                        "message": f"Unknown method: {method}",
+                    },
+                }
+            ),
+            flush=True,
+        )
+    return 0
+
+
 def main() -> int:
     instance = os.environ["CODEX_SWITCH_ACTIVE_INSTANCE"]
     home = Path(os.environ["HOME"])
     argv = sys.argv[1:]
+
+    if argv[:1] == ["app-server"]:
+        return _handle_app_server(home)
 
     if argv[:2] == ["login", "status"]:
         return _handle_login_status(home)

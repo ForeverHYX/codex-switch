@@ -21,6 +21,13 @@ from codex_switch.doctor import create_doctor_report
 from codex_switch.install import install_shim, runtime_wrapper_dir, uninstall_shim
 from codex_switch.models import AppConfig
 from codex_switch.paths import config_path
+from codex_switch.rate_limits import (
+    FIVE_HOUR_WINDOW_MINS,
+    SEVEN_DAY_WINDOW_MINS,
+    format_reset_timestamp,
+    read_instance_rate_limits,
+    select_window_for_duration,
+)
 from codex_switch.runtime import find_real_codex, resolve_real_codex
 from codex_switch.wizard import bootstrap_from_prompt, clear_existing_state, initialize_app
 
@@ -71,6 +78,22 @@ def _resolve_instance(config: AppConfig, instance_name: str):
     if instance is None:
         _fail(f"Instance {instance_name!r} is not present in the config")
     return instance
+
+
+def _render_table(headers: list[str], rows: list[list[str]]) -> list[str]:
+    widths = [len(header) for header in headers]
+    for row in rows:
+        for index, cell in enumerate(row):
+            widths[index] = max(widths[index], len(cell))
+
+    rendered = [
+        "  ".join(header.ljust(widths[index]) for index, header in enumerate(headers))
+    ]
+    for row in rows:
+        rendered.append(
+            "  ".join(cell.ljust(widths[index]) for index, cell in enumerate(row))
+        )
+    return rendered
 
 
 @app.command()
@@ -129,8 +152,51 @@ def init(
 @app.command("list")
 def list_instances() -> None:
     config = _load_initialized_config()
+    real_codex_path = _resolve_real_codex_for_management(config)
+
+    rows: list[list[str]] = []
     for instance in config.instances:
-        typer.echo(f"{instance.name}\t{instance.home_dir}")
+        result = read_instance_rate_limits(real_codex_path, instance)
+        if not result.ok or result.snapshot is None:
+            rows.append(
+                [
+                    instance.name,
+                    "unavailable",
+                    "-",
+                    "unavailable",
+                    "-",
+                    result.reason or "Unavailable",
+                ]
+            )
+            continue
+
+        five_hour = select_window_for_duration(
+            result.snapshot,
+            FIVE_HOUR_WINDOW_MINS,
+            fallback="primary",
+        )
+        seven_day = select_window_for_duration(
+            result.snapshot,
+            SEVEN_DAY_WINDOW_MINS,
+            fallback="secondary",
+        )
+
+        rows.append(
+            [
+                instance.name,
+                f"{five_hour.remaining_percent}%" if five_hour is not None else "-",
+                format_reset_timestamp(five_hour.resets_at) if five_hour is not None else "-",
+                f"{seven_day.remaining_percent}%" if seven_day is not None else "-",
+                format_reset_timestamp(seven_day.resets_at) if seven_day is not None else "-",
+                result.snapshot.plan_type or "ok",
+            ]
+        )
+
+    for line in _render_table(
+        ["INSTANCE", "5H REMAINING", "5H RESET", "7D REMAINING", "7D RESET", "STATUS"],
+        rows,
+    ):
+        typer.echo(line)
 
 
 @app.command()
