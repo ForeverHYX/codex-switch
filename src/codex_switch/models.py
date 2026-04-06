@@ -15,6 +15,15 @@ class InstanceConfig:
 
 
 @dataclass(slots=True)
+class ProbeResult:
+    instance_name: str
+    order: int
+    quota_remaining: int | None
+    ok: bool
+    reason: str | None = None
+
+
+@dataclass(slots=True)
 class AppConfig:
     real_codex_path: str
     instances: list[InstanceConfig] = field(default_factory=list)
