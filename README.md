@@ -23,6 +23,14 @@ python3 -m pip install codex-switch-cli
 codex-switch install-shim
 ```
 
+From Homebrew:
+
+```bash
+brew tap ForeverHYX/tap
+brew install codex-switch-cli
+codex-switch install-shim
+```
+
 From GitHub before the first PyPI release:
 
 ```bash
