@@ -1,3 +1,5 @@
+import pytest
+
 from codex_switch.models import ProbeResult
 from codex_switch.routing import select_best_instance
 
@@ -12,3 +14,25 @@ def test_select_best_instance_prefers_highest_quota_then_order() -> None:
     )
 
     assert selected.instance_name == "acct-002"
+
+
+def test_select_best_instance_rejects_unusable_results() -> None:
+    with pytest.raises(RuntimeError, match="No usable Codex account instances are available"):
+        select_best_instance(
+            [
+                ProbeResult(
+                    instance_name="acct-001",
+                    order=1,
+                    quota_remaining=None,
+                    ok=False,
+                    reason="timeout",
+                ),
+                ProbeResult(
+                    instance_name="acct-002",
+                    order=2,
+                    quota_remaining=None,
+                    ok=False,
+                    reason="parse error",
+                ),
+            ]
+        )
