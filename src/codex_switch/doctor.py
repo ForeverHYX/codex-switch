@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from codex_switch.config import ConfigCorruptError, ConfigNotInitializedError, load_config
-from codex_switch.paths import shim_dir
+from codex_switch.install import active_shim_path, runtime_wrapper_dir
 from codex_switch.probe import probe_instance
 from codex_switch.runtime import resolve_real_codex
 
@@ -24,16 +24,16 @@ class DoctorReport:
 
 
 def shim_precedes_path(wrapper_dir: Path | None = None) -> bool:
-    expected = (wrapper_dir or shim_dir()).resolve()
-    for entry in os.environ.get("PATH", "").split(os.pathsep):
-        if not entry:
-            continue
-        return Path(entry).expanduser().resolve() == expected
-    return False
+    active = active_shim_path(os.environ.get("PATH", ""))
+    if active is None:
+        return False
+    if wrapper_dir is None:
+        return True
+    return active.parent.resolve() == wrapper_dir.resolve()
 
 
 def create_doctor_report(wrapper_dir: Path | None = None) -> DoctorReport:
-    actual_wrapper_dir = wrapper_dir or shim_dir()
+    actual_wrapper_dir = wrapper_dir or runtime_wrapper_dir()
     shim_ok = shim_precedes_path(actual_wrapper_dir)
 
     try:

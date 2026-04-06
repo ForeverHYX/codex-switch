@@ -12,11 +12,12 @@ from codex_switch.config import (
     load_config,
     save_config,
 )
+from codex_switch.install import runtime_wrapper_dir
 from codex_switch.models import AppConfig
 from codex_switch.models import ProbeResult
+from codex_switch.paths import shim_dir
 from codex_switch.probe import probe_instance
 from codex_switch.routing import select_best_instance
-from codex_switch.paths import shim_dir
 from codex_switch.runtime import build_instance_env, find_real_codex, resolve_real_codex
 from codex_switch.wizard import bootstrap_from_prompt
 
@@ -73,7 +74,7 @@ def main(argv: list[str] | None = None) -> int:
         config = load_config()
     except ConfigNotInitializedError:
         try:
-            real_codex_path = find_real_codex(shim_dir())
+            real_codex_path = find_real_codex(runtime_wrapper_dir())
             bootstrap_from_prompt(real_codex_path=real_codex_path, shared_home=Path.home())
             config = load_config()
         except (CodexCommandError, LoginBootstrapAbortedError) as exc:
@@ -86,7 +87,7 @@ def main(argv: list[str] | None = None) -> int:
         return _fail("Codex Switch config is corrupt. Remove it and run `codex-switch init` again.")
 
     try:
-        resolved_real_codex = resolve_real_codex(config.real_codex_path, shim_dir())
+        resolved_real_codex = resolve_real_codex(config.real_codex_path, runtime_wrapper_dir())
     except FileNotFoundError as exc:
         return _fail(f"Unable to locate the real Codex binary: {exc}")
     _refresh_real_codex_path(config, resolved_real_codex)
