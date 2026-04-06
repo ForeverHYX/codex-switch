@@ -5,7 +5,7 @@ import sys
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from codex_switch.auth import LoginBootstrapAbortedError
+from codex_switch.auth import CodexCommandError, LoginBootstrapAbortedError
 from codex_switch.config import (
     ConfigCorruptError,
     ConfigNotInitializedError,
@@ -76,7 +76,7 @@ def main(argv: list[str] | None = None) -> int:
             real_codex_path = find_real_codex(shim_dir())
             bootstrap_from_prompt(real_codex_path=real_codex_path, shared_home=Path.home())
             config = load_config()
-        except LoginBootstrapAbortedError as exc:
+        except (CodexCommandError, LoginBootstrapAbortedError) as exc:
             return _fail(str(exc))
         except FileNotFoundError as exc:
             return _fail(f"Unable to locate the real Codex binary: {exc}")

@@ -17,6 +17,7 @@ remaining quota before launching the real CLI.
 ## Install
 
 ```bash
+python -m pip install -e .
 codex-switch install-shim
 ```
 
