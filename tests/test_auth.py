@@ -5,7 +5,7 @@ from pathlib import Path
 from typer.testing import CliRunner
 
 from codex_switch.cli import app
-from codex_switch.config import save_config
+from codex_switch.config import load_config, save_config
 from codex_switch.auth import login, login_status, logout
 from codex_switch.auth import LoginBootstrapAbortedError, ensure_instance_logged_in
 from codex_switch.models import AppConfig
@@ -134,3 +134,24 @@ def test_cli_login_and_logout_drive_upstream_commands(
     logout_result = runner.invoke(app, ["logout", "acct-001"])
     assert logout_result.exit_code == 0
     assert "Logged out acct-001" in logout_result.output
+
+
+def test_cli_login_recovers_stale_real_codex_path(
+    tmp_path, monkeypatch, fake_codex_path: Path
+) -> None:
+    monkeypatch.setenv("CODEX_SWITCH_HOME", str(tmp_path))
+    launcher = _make_launcher(tmp_path, fake_codex_path)
+    monkeypatch.setenv("PATH", f"{tmp_path}:{os.environ['PATH']}")
+    instance = _make_instance(tmp_path)
+
+    save_config(
+        AppConfig(
+            real_codex_path=str(tmp_path / "missing" / "codex"),
+            instances=[instance],
+        )
+    )
+
+    result = CliRunner().invoke(app, ["login", "acct-001"])
+
+    assert result.exit_code == 0
+    assert load_config().real_codex_path == str(launcher)

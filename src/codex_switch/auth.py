@@ -20,6 +20,10 @@ class LoginBootstrapAbortedError(RuntimeError):
     pass
 
 
+class CodexCommandError(RuntimeError):
+    pass
+
+
 def _run_codex(
     real_codex_path: str | Path,
     instance: InstanceConfig,
@@ -27,13 +31,16 @@ def _run_codex(
     *,
     capture_output: bool = False,
 ) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        [str(real_codex_path), *argv],
-        env=build_instance_env(instance.name, Path(instance.home_dir)),
-        text=True,
-        capture_output=capture_output,
-        check=False,
-    )
+    try:
+        return subprocess.run(
+            [str(real_codex_path), *argv],
+            env=build_instance_env(instance.name, Path(instance.home_dir)),
+            text=True,
+            capture_output=capture_output,
+            check=False,
+        )
+    except FileNotFoundError as exc:
+        raise CodexCommandError(f"Unable to launch the real Codex binary: {exc}") from exc
 
 
 def login_status(real_codex_path: str | Path, instance: InstanceConfig) -> LoginStatus:

@@ -5,6 +5,7 @@ from pathlib import Path
 import typer
 
 from codex_switch.auth import (
+    CodexCommandError,
     LoginBootstrapAbortedError,
     ensure_instance_logged_in,
     login_status,
@@ -84,7 +85,7 @@ def init(
             instance_count=instance_count,
             shared_home=shared_home,
         )
-    except (FileExistsError, LoginBootstrapAbortedError, ValueError) as exc:
+    except (CodexCommandError, FileExistsError, LoginBootstrapAbortedError, ValueError) as exc:
         _fail(str(exc))
     typer.echo(f"Initialized {instance_count} account instances")
 
@@ -110,7 +111,7 @@ def login(instance_name: str) -> None:
             input_fn=input,
             output_fn=typer.echo,
         )
-    except LoginBootstrapAbortedError as exc:
+    except (CodexCommandError, LoginBootstrapAbortedError) as exc:
         _fail(str(exc))
 
     if not authenticated:
@@ -124,8 +125,11 @@ def logout(instance_name: str) -> None:
     instance = _resolve_instance(config, instance_name)
     real_codex_path = _resolve_real_codex_for_management(config)
 
-    run_logout(real_codex_path, instance)
-    status = login_status(real_codex_path, instance)
+    try:
+        run_logout(real_codex_path, instance)
+        status = login_status(real_codex_path, instance)
+    except CodexCommandError as exc:
+        _fail(str(exc))
     if status.logged_in:
         _fail(f"Instance {instance_name!r} is still logged in after logout")
     typer.echo(f"Logged out {instance_name}")
