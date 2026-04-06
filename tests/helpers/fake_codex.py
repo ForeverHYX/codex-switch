@@ -6,17 +6,59 @@ import sys
 from pathlib import Path
 
 
+def _login_state_path(home: Path) -> Path:
+    return home / ".codex" / "login-state.json"
+
+
+def _is_logged_in(home: Path) -> bool:
+    return _login_state_path(home).exists()
+
+
+def _set_logged_in(home: Path) -> None:
+    state_path = _login_state_path(home)
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    state_path.write_text(json.dumps({"provider": "ChatGPT"}))
+
+
+def _clear_logged_in(home: Path) -> None:
+    state_path = _login_state_path(home)
+    if state_path.exists():
+        state_path.unlink()
+
+
+def _handle_login_status(home: Path) -> int:
+    if _is_logged_in(home):
+        print("Logged in using ChatGPT")
+        return 0
+    print("Not logged in")
+    return 1
+
+
 def main() -> int:
     instance = os.environ["CODEX_SWITCH_ACTIVE_INSTANCE"]
     home = Path(os.environ["HOME"])
+    argv = sys.argv[1:]
     stdin_payload = sys.stdin.read()
 
+    if argv[:2] == ["login", "status"]:
+        return _handle_login_status(home)
+
+    if argv[:1] == ["login"]:
+        _set_logged_in(home)
+        print("Logged in using ChatGPT")
+        return 0
+
+    if argv[:1] == ["logout"]:
+        _clear_logged_in(home)
+        return 0
+
     if "/status" in stdin_payload:
-        quota = (home / "quota.txt").read_text().strip()
+        quota_path = home / "quota.txt"
+        quota = quota_path.read_text().strip() if quota_path.exists() else "1"
         print(f"Requests remaining: {quota}")
         return 0
 
-    payload = {"argv": sys.argv[1:], "instance": instance}
+    payload = {"argv": argv, "instance": instance}
     output_path = os.environ.get("CODEX_SWITCH_FORWARD_OUTPUT")
     if output_path:
         Path(output_path).write_text(json.dumps(payload))

@@ -8,7 +8,8 @@ remaining quota before launching the real CLI.
 
 - installs a PATH-first `codex` shim
 - stores one isolated runtime home per account
-- probes each account with `codex login status` before launch
+- checks account login state with `codex login status`
+- probes each account's remaining quota with `/status` before launch
 - forwards the original user command unchanged to the selected account
 - keeps repository files, project instructions, and shared skills visible to
   every instance
@@ -16,11 +17,17 @@ remaining quota before launching the real CLI.
 ## Install
 
 ```bash
-codex-switch init --instance-count 2 --real-codex-path "$(which codex)"
 codex-switch install-shim
 ```
 
-If you already have the shim installed, day-to-day usage stays the same:
+After that, just run `codex`. The first launch asks how many accounts to set up
+and walks you through logging each one in with the upstream Codex CLI.
+
+```bash
+codex
+```
+
+Once setup is done, day-to-day usage stays the same:
 
 ```bash
 codex "review this branch"
@@ -30,8 +37,8 @@ codex exec "make test"
 ## How it works
 
 The first `codex` run triggers setup. `codex-switch` creates one isolated
-runtime home per account, runs the upstream login flow for each account, then
-stores the real Codex binary path for later launches.
+runtime home per account, runs the upstream login flow for each account in
+turn, then stores the real Codex binary path for later launches.
 
 When you later run `codex`, the shim probes each configured account, skips
 unhealthy or unlogged ones, and picks the one with the most remaining quota.
