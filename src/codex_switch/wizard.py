@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 from typing import Callable
 from pathlib import Path
 
@@ -8,7 +9,7 @@ from codex_switch.auth import LoginBootstrapAbortedError, ensure_instance_logged
 from codex_switch.config import save_config
 from codex_switch.instances import create_instances
 from codex_switch.models import AppConfig
-from codex_switch.paths import config_path
+from codex_switch.paths import config_path, instances_dir
 
 
 def _validate_real_codex_path(real_codex_path: Path) -> None:
@@ -75,6 +76,15 @@ def initialize_app(
     )
     save_config(config)
     return config
+
+
+def clear_existing_state() -> None:
+    path = config_path()
+    if path.exists():
+        path.unlink()
+    target_instances_dir = instances_dir()
+    if target_instances_dir.exists():
+        shutil.rmtree(target_instances_dir)
 
 
 def bootstrap_from_prompt(

@@ -171,6 +171,7 @@ def test_wrapper_recovers_stale_real_codex_path(tmp_path, monkeypatch) -> None:
 
     stale_path = tmp_path / "missing" / "codex"
     recovered_path = tmp_path / "real" / "codex"
+    active_shim_dir = tmp_path / "shim" / "bin"
     recovered_path.parent.mkdir(parents=True)
     recovered_path.write_text("#!/bin/sh\n")
     recovered_path.chmod(0o755)
@@ -204,9 +205,11 @@ def test_wrapper_recovers_stale_real_codex_path(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr("codex_switch.wrapper.resolve_real_codex", fake_resolve_real_codex)
     monkeypatch.setattr("codex_switch.wrapper.probe_all_instances", fake_probe_all_instances)
     monkeypatch.setattr("codex_switch.wrapper.subprocess.run", fake_run)
+    monkeypatch.setattr("codex_switch.wrapper.runtime_wrapper_dir", lambda: active_shim_dir)
 
     exit_code = main(["review"])
 
     assert exit_code == 0
+    assert seen["wrapper_dir"] == active_shim_dir
     assert seen["probe_path"] == str(recovered_path)
     assert seen["command"][0] == str(recovered_path)

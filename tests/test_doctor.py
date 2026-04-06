@@ -21,12 +21,16 @@ def test_doctor_report_flags_missing_shim() -> None:
 def test_create_doctor_report_recovers_stale_binary_and_reports_health(
     tmp_path, monkeypatch
 ) -> None:
-    monkeypatch.setenv("CODEX_SWITCH_HOME", str(tmp_path))
-    wrapper_bin = tmp_path / "bin"
+    state_home = tmp_path / "state"
+    monkeypatch.setenv("CODEX_SWITCH_HOME", str(state_home))
+    home = tmp_path / "home"
+    monkeypatch.setenv("HOME", str(home))
+    wrapper_bin = home / ".local" / "bin"
     real_bin = tmp_path / "real" / "bin"
     wrapper_bin.mkdir(parents=True)
     real_bin.mkdir(parents=True)
     monkeypatch.setenv("PATH", f"{wrapper_bin}:{real_bin}")
+    install_shim()
 
     real_codex = real_bin / "codex"
     real_codex.write_text("#!/bin/sh\nprintf 'Requests remaining: 33\\n'\n")
@@ -52,17 +56,32 @@ def test_create_doctor_report_recovers_stale_binary_and_reports_health(
     assert report.unhealthy_instances == []
 
 
-def test_install_and_uninstall_shim(tmp_path, monkeypatch) -> None:
-    monkeypatch.setenv("CODEX_SWITCH_HOME", str(tmp_path))
+def test_install_shim_prefers_local_bin_on_path(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("CODEX_SWITCH_HOME", str(tmp_path / "state"))
+    home = tmp_path / "home"
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("PATH", f"{home / '.local' / 'bin'}:/usr/bin")
 
     target = install_shim()
     content = target.read_text()
 
-    assert target == config_path().parent / "bin" / "codex"
+    assert target == home / ".local" / "bin" / "codex"
     assert target.exists()
     assert target.stat().st_mode & 0o111
     assert "#!/bin/sh" in content
+    assert "CODEX_SWITCH_SHIM_DIR" in content
     assert "-m codex_switch.wrapper" in content
+
+
+def test_install_and_uninstall_shim_falls_back_to_state_directory(
+    tmp_path, monkeypatch
+) -> None:
+    monkeypatch.setenv("CODEX_SWITCH_HOME", str(tmp_path))
+    monkeypatch.setenv("PATH", "/usr/bin")
+
+    target = install_shim()
+
+    assert target == config_path().parent / "bin" / "codex"
 
     removed = uninstall_shim()
 

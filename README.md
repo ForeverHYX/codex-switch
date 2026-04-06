@@ -20,7 +20,7 @@ From PyPI after release:
 
 ```bash
 python3 -m pip install codex-switch-cli
-codex-switch install-shim
+codex-switch init
 ```
 
 From Homebrew:
@@ -28,20 +28,22 @@ From Homebrew:
 ```bash
 brew tap ForeverHYX/tap
 brew install codex-switch-cli
-codex-switch install-shim
+codex-switch init
 ```
 
 From GitHub before the first PyPI release:
 
 ```bash
 python3 -m pip install git+https://github.com/ForeverHYX/codex-switch.git
-codex-switch install-shim
+codex-switch init
 ```
 
-After that, just run `codex`. The first launch asks how many accounts to set up
-and walks you through logging each one in with the upstream Codex CLI.
+`codex-switch init` auto-detects the real `codex` binary, asks how many
+accounts to create, walks you through each upstream login flow, and installs the
+shim so later `codex` commands go through `codex-switch`.
 
 ```bash
+codex-switch init
 codex
 ```
 
@@ -54,9 +56,12 @@ codex exec "make test"
 
 ## How it works
 
-The first `codex` run triggers setup. `codex-switch` creates one isolated
-runtime home per account, runs the upstream login flow for each account in
-turn, then stores the real Codex binary path for later launches.
+The first `codex` run triggers setup if you have already installed the shim.
+`codex-switch init` runs the same interactive flow explicitly and is the
+recommended first step after installation. In both cases, `codex-switch`
+creates one isolated runtime home per account, runs the upstream login flow for
+each account in turn, then stores the real Codex binary path for later
+launches.
 
 When you later run `codex`, the shim probes each configured account, skips
 unhealthy or unlogged ones, and picks the one with the most remaining quota.

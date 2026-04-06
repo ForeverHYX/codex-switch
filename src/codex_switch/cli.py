@@ -18,11 +18,11 @@ from codex_switch.config import (
     save_config,
 )
 from codex_switch.doctor import create_doctor_report
-from codex_switch.install import install_shim, uninstall_shim
+from codex_switch.install import install_shim, runtime_wrapper_dir, uninstall_shim
 from codex_switch.models import AppConfig
-from codex_switch.paths import config_path, shim_dir
-from codex_switch.runtime import resolve_real_codex
-from codex_switch.wizard import initialize_app
+from codex_switch.paths import config_path
+from codex_switch.runtime import find_real_codex, resolve_real_codex
+from codex_switch.wizard import bootstrap_from_prompt, clear_existing_state, initialize_app
 
 app = typer.Typer(no_args_is_help=True)
 
@@ -51,7 +51,7 @@ def _load_initialized_config() -> AppConfig:
 
 def _resolve_real_codex_for_management(config: AppConfig) -> str:
     try:
-        resolved = resolve_real_codex(config.real_codex_path, shim_dir())
+        resolved = resolve_real_codex(config.real_codex_path, runtime_wrapper_dir())
     except FileNotFoundError as exc:
         _fail(f"Unable to locate the real Codex binary: {exc}")
 
@@ -75,19 +75,55 @@ def _resolve_instance(config: AppConfig, instance_name: str):
 
 @app.command()
 def init(
-    instance_count: int = typer.Option(..., min=1),
-    real_codex_path: Path = typer.Option(..., exists=True, dir_okay=False),
-    shared_home: Path = typer.Option(Path.home()),
+    instance_count: int | None = typer.Option(None, min=1),
+    real_codex_path: Path | None = typer.Option(None, exists=True, dir_okay=False),
+    shared_home: Path | None = typer.Option(None),
+    force: bool = typer.Option(False, "--force", help="Overwrite any existing configuration."),
 ) -> None:
+    selected_shared_home = Path.home() if shared_home is None else shared_home
     try:
-        initialize_app(
-            real_codex_path=real_codex_path,
-            instance_count=instance_count,
-            shared_home=shared_home,
+        resolved_real_codex = (
+            real_codex_path
+            if real_codex_path is not None
+            else find_real_codex(runtime_wrapper_dir())
         )
-    except (CodexCommandError, FileExistsError, LoginBootstrapAbortedError, ValueError) as exc:
+    except FileNotFoundError as exc:
+        _fail(f"Unable to locate the real Codex binary: {exc}")
+
+    if config_path().exists():
+        should_rebuild = force or typer.confirm(
+            f"{config_path()} already exists. Overwrite it and rebuild all account instances?"
+        )
+        if not should_rebuild:
+            _fail("Initialization aborted.")
+        clear_existing_state()
+
+    try:
+        if instance_count is None:
+            config = bootstrap_from_prompt(
+                real_codex_path=resolved_real_codex,
+                shared_home=selected_shared_home,
+                input_fn=input,
+                output_fn=typer.echo,
+            )
+        else:
+            config = initialize_app(
+                real_codex_path=resolved_real_codex,
+                instance_count=instance_count,
+                shared_home=selected_shared_home,
+                input_fn=input,
+                output_fn=typer.echo,
+            )
+        shim_target = install_shim()
+    except (
+        CodexCommandError,
+        FileExistsError,
+        LoginBootstrapAbortedError,
+        ValueError,
+    ) as exc:
         _fail(str(exc))
-    typer.echo(f"Initialized {instance_count} account instances")
+    typer.echo(f"Initialized {len(config.instances)} account instances")
+    typer.echo(f"Installed codex shim at {shim_target}")
 
 
 @app.command("list")
@@ -143,7 +179,10 @@ def doctor() -> None:
 
 @app.command("install-shim")
 def install_shim_command() -> None:
-    target = install_shim()
+    try:
+        target = install_shim()
+    except FileExistsError as exc:
+        _fail(str(exc))
     typer.echo(f"Installed codex shim at {target}")
 
 
