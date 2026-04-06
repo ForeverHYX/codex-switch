@@ -1,38 +1,50 @@
 # codex-switch
 
-`codex-switch` is a local wrapper for the Codex CLI. It keeps one shared project
-workspace, but routes each `codex ...` invocation to the logged-in account
-instance with the most remaining quota.
+`codex-switch` is a local wrapper for the Codex CLI. It keeps the normal
+`codex` command, but chooses the logged-in account instance with the most
+remaining quota before launching the real CLI.
 
-## What v1 does
+## What it does
 
-- keeps the normal `codex` entrypoint through a PATH-first shim
+- installs a PATH-first `codex` shim
 - stores one isolated runtime home per account
-- probes each account with `/status` before launch
-- skips unhealthy, unlogged, or failing instances
+- probes each account with `codex login status` before launch
 - forwards the original user command unchanged to the selected account
-- keeps repository context, skills, and project files shared across instances
+- keeps repository files, project instructions, and shared skills visible to
+  every instance
 
-## What v1 does not do
+## Install
 
-- switch accounts in the middle of a running Codex session
-- manage upstream Codex upgrades for you
-- guarantee that `/status` output never changes
-- merge or synchronize account histories
+```bash
+codex-switch init --instance-count 2 --real-codex-path "$(which codex)"
+codex-switch install-shim
+```
+
+If you already have the shim installed, day-to-day usage stays the same:
+
+```bash
+codex "review this branch"
+codex exec "make test"
+```
+
+## How it works
+
+The first `codex` run triggers setup. `codex-switch` creates one isolated
+runtime home per account, runs the upstream login flow for each account, then
+stores the real Codex binary path for later launches.
+
+When you later run `codex`, the shim probes each configured account, skips
+unhealthy or unlogged ones, and picks the one with the most remaining quota.
+
+## Caveats
+
+- it does not switch accounts in the middle of a running Codex session
+- it does not manage upstream Codex upgrades for you
+- it depends on the upstream CLI's login/status output staying readable
+- all accounts still share the same project working directory
 
 ## Public repository rules
 
 - commit source files, tests, and public docs only
 - keep local planning docs out of public pushes
 - keep local-only agent and skill metadata out of public pushes
-
-## Release checklist
-
-- [ ] tests pass locally
-- [ ] the public design doc reflects the latest approved behavior
-- [ ] staged files exclude local-only planning metadata
-- [ ] public pushes include only code, tests, and public docs
-
-## Public design
-
-See [docs/design/codex-switch-design.md](docs/design/codex-switch-design.md) for the public summary of the approved behavior.
