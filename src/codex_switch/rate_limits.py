@@ -206,7 +206,7 @@ def read_rate_limits(
             {
                 "clientInfo": {
                     "name": "codex-switch",
-                    "version": "0.1.2",
+                    "version": "0.1.3",
                 },
                 "capabilities": {
                     "experimentalApi": True,
