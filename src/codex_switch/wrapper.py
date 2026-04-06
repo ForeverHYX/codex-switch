@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import subprocess
 import sys
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from codex_switch.config import ConfigCorruptError, ConfigNotInitializedError, load_config
@@ -17,11 +18,14 @@ REAL_CODEX_ARGV: list[str] | None = None
 
 
 def probe_all_instances(config) -> list[ProbeResult]:
-    return [
-        probe_instance(config.real_codex_path, instance)
-        for instance in config.instances
-        if instance.enabled
-    ]
+    instances = [instance for instance in config.instances if instance.enabled]
+    with ThreadPoolExecutor(max_workers=max(1, len(instances))) as executor:
+        return list(
+            executor.map(
+                lambda instance: probe_instance(config.real_codex_path, instance),
+                instances,
+            )
+        )
 
 
 def _fail(message: str) -> int:
