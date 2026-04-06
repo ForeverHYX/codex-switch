@@ -1,3 +1,5 @@
+import os
+import sys
 from pathlib import Path
 
 from typer.testing import CliRunner
@@ -7,13 +9,23 @@ from codex_switch.paths import config_path
 from codex_switch.wizard import initialize_app
 
 
-def test_initialize_app_creates_instances_and_config(tmp_path, monkeypatch) -> None:
+def _make_launcher(tmp_path: Path, fake_codex_path: Path) -> Path:
+    launcher = tmp_path / "codex"
+    launcher.write_text(
+        "#!/bin/sh\n"
+        f'exec "{sys.executable}" "{fake_codex_path}" "$@"\n'
+    )
+    os.chmod(launcher, 0o755)
+    return launcher
+
+
+def test_initialize_app_creates_instances_and_config(
+    tmp_path, monkeypatch, fake_codex_path: Path
+) -> None:
     monkeypatch.setenv("CODEX_SWITCH_HOME", str(tmp_path))
     shared_home = tmp_path / "shared-home"
     (shared_home / ".codex" / "skills").mkdir(parents=True)
-    real_codex = tmp_path / "codex"
-    real_codex.write_text("#!/bin/sh\n")
-    real_codex.chmod(0o755)
+    real_codex = _make_launcher(tmp_path, fake_codex_path)
 
     config = initialize_app(
         real_codex_path=real_codex,
@@ -24,6 +36,7 @@ def test_initialize_app_creates_instances_and_config(tmp_path, monkeypatch) -> N
     assert [instance.name for instance in config.instances] == ["acct-001", "acct-002"]
     assert (tmp_path / "instances" / "acct-001" / "home").exists()
     assert (tmp_path / "config.json").exists()
+    assert config.instances[0].enabled is True
 
 
 def test_initialize_app_rejects_non_executable_codex_path(
@@ -51,14 +64,12 @@ def test_initialize_app_rejects_non_executable_codex_path(
 
 
 def test_initialize_app_refuses_to_overwrite_existing_config(
-    tmp_path, monkeypatch
+    tmp_path, monkeypatch, fake_codex_path: Path
 ) -> None:
     monkeypatch.setenv("CODEX_SWITCH_HOME", str(tmp_path))
     shared_home = tmp_path / "shared-home"
     (shared_home / ".codex" / "skills").mkdir(parents=True)
-    real_codex = tmp_path / "codex"
-    real_codex.write_text("#!/bin/sh\n")
-    real_codex.chmod(0o755)
+    real_codex = _make_launcher(tmp_path, fake_codex_path)
 
     initialize_app(
         real_codex_path=real_codex,

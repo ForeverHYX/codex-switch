@@ -1,5 +1,7 @@
-import subprocess
 import json
+import os
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -7,6 +9,16 @@ import pytest
 from codex_switch.config import save_config
 from codex_switch.models import AppConfig, InstanceConfig
 from codex_switch.wrapper import main
+
+
+def _make_launcher(tmp_path: Path, fake_codex: Path) -> Path:
+    launcher = tmp_path / "codex"
+    launcher.write_text(
+        "#!/bin/sh\n"
+        f'exec "{sys.executable}" "{fake_codex}" "$@"\n'
+    )
+    os.chmod(launcher, 0o755)
+    return launcher
 
 
 def test_wrapper_forwards_original_args_to_best_instance(tmp_path, monkeypatch) -> None:
@@ -56,14 +68,29 @@ def test_wrapper_blocks_managed_commands(command, capsys) -> None:
     assert "Use `codex-switch login` or `codex-switch logout` for account management" in captured.err
 
 
-def test_wrapper_reports_missing_config(tmp_path, monkeypatch, capsys) -> None:
+def test_wrapper_bootstraps_on_missing_config_and_resumes_command(
+    tmp_path, monkeypatch, fake_codex_path: Path
+) -> None:
     monkeypatch.setenv("CODEX_SWITCH_HOME", str(tmp_path))
+    monkeypatch.setenv("CODEX_SWITCH_FORWARD_OUTPUT", str(tmp_path / "forwarded.json"))
+    shared_home = tmp_path / "shared-home"
+    (shared_home / ".codex" / "skills").mkdir(parents=True)
+    monkeypatch.setenv("HOME", str(shared_home))
+    launcher = _make_launcher(tmp_path, fake_codex_path)
+    monkeypatch.setenv("PATH", f"{tmp_path}:{os.environ['PATH']}")
+    monkeypatch.setattr("builtins.input", lambda prompt="": "1")
 
-    exit_code = main(["review"])
+    save_config_path = tmp_path / "config-should-not-exist-yet"
+    assert not save_config_path.exists()
 
-    captured = capsys.readouterr()
-    assert exit_code == 1
-    assert "Codex Switch is not initialized" in captured.err
+    exit_code = main(["review", "--json"])
+
+    payload = json.loads((tmp_path / "forwarded.json").read_text())
+    assert exit_code == 0
+    assert payload["instance"] == "acct-001"
+    assert payload["argv"] == ["review", "--json"]
+    assert (tmp_path / "config.json").exists()
+    assert launcher.exists()
 
 
 def test_wrapper_reports_routing_failure(tmp_path, monkeypatch, capsys) -> None:
