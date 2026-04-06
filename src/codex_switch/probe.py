@@ -44,6 +44,8 @@ def probe_instance(real_codex_path: str, instance: InstanceConfig) -> ProbeResul
             check=False,
             timeout=15,
         )
+    except FileNotFoundError as exc:
+        return _failure(instance, f"Probe could not launch the real Codex binary: {exc}")
     except subprocess.TimeoutExpired:
         return _failure(instance, "Probe timed out")
 

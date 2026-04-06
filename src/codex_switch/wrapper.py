@@ -5,10 +5,12 @@ import sys
 from pathlib import Path
 
 from codex_switch.config import ConfigCorruptError, ConfigNotInitializedError, load_config
+from codex_switch.models import AppConfig
 from codex_switch.models import ProbeResult
 from codex_switch.probe import probe_instance
 from codex_switch.routing import select_best_instance
-from codex_switch.runtime import build_instance_env
+from codex_switch.paths import shim_dir
+from codex_switch.runtime import build_instance_env, resolve_real_codex
 
 MANAGED_COMMANDS = {"login", "logout"}
 REAL_CODEX_ARGV: list[str] | None = None
@@ -52,7 +54,17 @@ def main(argv: list[str] | None = None) -> int:
         return _fail("Codex Switch config is corrupt. Remove it and run `codex-switch init` again.")
 
     try:
-        selected = select_best_instance(probe_all_instances(config))
+        resolved_real_codex = resolve_real_codex(config.real_codex_path, shim_dir())
+    except FileNotFoundError as exc:
+        return _fail(f"Unable to locate the real Codex binary: {exc}")
+
+    probe_config = AppConfig(
+        real_codex_path=str(resolved_real_codex),
+        instances=config.instances,
+    )
+
+    try:
+        selected = select_best_instance(probe_all_instances(probe_config))
     except FileNotFoundError as exc:
         return _fail(f"Unable to locate the real Codex binary: {exc}")
     except (RuntimeError, StopIteration) as exc:
@@ -68,7 +80,7 @@ def main(argv: list[str] | None = None) -> int:
         instance_home=Path(instance.home_dir),
     )
 
-    command = REAL_CODEX_ARGV or [config.real_codex_path]
+    command = REAL_CODEX_ARGV or [str(resolved_real_codex)]
     try:
         completed = subprocess.run(
             [*command, *args],
