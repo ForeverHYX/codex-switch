@@ -16,8 +16,17 @@ remaining quota before launching the real CLI.
 
 ## Install
 
+From PyPI after release:
+
 ```bash
-python -m pip install -e .
+python3 -m pip install codex-switch-cli
+codex-switch install-shim
+```
+
+From GitHub before the first PyPI release:
+
+```bash
+python3 -m pip install git+https://github.com/ForeverHYX/codex-switch.git
 codex-switch install-shim
 ```
 
@@ -56,3 +65,10 @@ unhealthy or unlogged ones, and picks the one with the most remaining quota.
 - commit source files, tests, and public docs only
 - keep local planning docs out of public pushes
 - keep local-only agent and skill metadata out of public pushes
+
+## Publishing
+
+This repository is set up to publish the `codex-switch-cli` package to PyPI
+through GitHub Actions trusted publishing. After PyPI trusted publishing is
+configured for this repository, creating a GitHub release tag can build and
+upload the package automatically.
