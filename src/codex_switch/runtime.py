@@ -4,6 +4,10 @@ import os
 from pathlib import Path
 
 
+def _is_executable_file(path: Path) -> bool:
+    return path.exists() and os.access(path, os.X_OK)
+
+
 def find_real_codex(wrapper_dir: Path) -> Path:
     path_entries = []
     for entry in os.environ.get("PATH", "").split(os.pathsep):
@@ -19,6 +23,13 @@ def find_real_codex(wrapper_dir: Path) -> Path:
             return candidate.resolve()
 
     raise FileNotFoundError("Unable to locate the real codex binary outside the shim directory")
+
+
+def resolve_real_codex(stored_path: str, wrapper_dir: Path) -> Path:
+    candidate = Path(stored_path).expanduser()
+    if _is_executable_file(candidate):
+        return candidate.resolve()
+    return find_real_codex(wrapper_dir)
 
 
 def build_instance_env(

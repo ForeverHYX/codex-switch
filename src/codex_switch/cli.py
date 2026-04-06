@@ -5,6 +5,8 @@ from pathlib import Path
 import typer
 
 from codex_switch.config import ConfigCorruptError, ConfigNotInitializedError, load_config
+from codex_switch.doctor import create_doctor_report
+from codex_switch.install import install_shim, uninstall_shim
 from codex_switch.paths import config_path
 from codex_switch.wizard import initialize_app
 
@@ -62,6 +64,24 @@ def login(instance_name: str) -> None:
 @app.command()
 def logout(instance_name: str) -> None:
     typer.echo(f"Logout flow for {instance_name} will run through the isolated instance environment")
+
+
+@app.command()
+def doctor() -> None:
+    report = create_doctor_report()
+    typer.echo(report.summary())
+
+
+@app.command("install-shim")
+def install_shim_command() -> None:
+    target = install_shim()
+    typer.echo(f"Installed codex shim at {target}")
+
+
+@app.command()
+def uninstall() -> None:
+    target = uninstall_shim()
+    typer.echo(f"Removed codex shim at {target}")
 
 
 if __name__ == "__main__":

@@ -1,3 +1,4 @@
+import subprocess
 import json
 from pathlib import Path
 
@@ -136,3 +137,49 @@ def test_wrapper_reports_missing_selected_instance(tmp_path, monkeypatch, capsys
     captured = capsys.readouterr()
     assert exit_code == 1
     assert "Selected instance 'acct-999' is not present in the config" in captured.err
+
+
+def test_wrapper_recovers_stale_real_codex_path(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("CODEX_SWITCH_HOME", str(tmp_path))
+
+    stale_path = tmp_path / "missing" / "codex"
+    recovered_path = tmp_path / "real" / "codex"
+    recovered_path.parent.mkdir(parents=True)
+    recovered_path.write_text("#!/bin/sh\n")
+    recovered_path.chmod(0o755)
+
+    save_config(
+        AppConfig(
+            real_codex_path=str(stale_path),
+            instances=[
+                InstanceConfig(name="acct-001", order=1, home_dir=str(tmp_path / "acct-001")),
+            ],
+        )
+    )
+
+    seen = {}
+
+    def fake_resolve_real_codex(stored_path, wrapper_dir):
+        assert stored_path == str(stale_path)
+        seen["wrapper_dir"] = wrapper_dir
+        return recovered_path
+
+    def fake_probe_all_instances(config):
+        seen["probe_path"] = config.real_codex_path
+        return [
+            type("Result", (), {"instance_name": "acct-001", "order": 1, "quota_remaining": 10, "ok": True})(),
+        ]
+
+    def fake_run(command, **kwargs):
+        seen["command"] = command
+        return subprocess.CompletedProcess(args=command, returncode=0)
+
+    monkeypatch.setattr("codex_switch.wrapper.resolve_real_codex", fake_resolve_real_codex)
+    monkeypatch.setattr("codex_switch.wrapper.probe_all_instances", fake_probe_all_instances)
+    monkeypatch.setattr("codex_switch.wrapper.subprocess.run", fake_run)
+
+    exit_code = main(["review"])
+
+    assert exit_code == 0
+    assert seen["probe_path"] == str(recovered_path)
+    assert seen["command"][0] == str(recovered_path)

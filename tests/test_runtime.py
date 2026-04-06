@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from codex_switch.runtime import build_instance_env, find_real_codex
+from codex_switch.runtime import build_instance_env, find_real_codex, resolve_real_codex
 
 
 def test_find_real_codex_skips_wrapper_directory(tmp_path, monkeypatch) -> None:
@@ -15,6 +15,28 @@ def test_find_real_codex_skips_wrapper_directory(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("PATH", f"{wrapper_bin}:{real_bin}")
 
     assert find_real_codex(wrapper_bin) == real_bin / "codex"
+
+
+def test_resolve_real_codex_prefers_existing_stored_path(tmp_path) -> None:
+    stored = tmp_path / "codex"
+    stored.write_text("#!/bin/sh\n")
+    stored.chmod(0o755)
+
+    assert resolve_real_codex(str(stored), tmp_path / "shim") == stored
+
+
+def test_resolve_real_codex_recovers_when_stored_path_is_stale(
+    tmp_path, monkeypatch
+) -> None:
+    wrapper_bin = tmp_path / "wrapper" / "bin"
+    real_bin = tmp_path / "real" / "bin"
+    wrapper_bin.mkdir(parents=True)
+    real_bin.mkdir(parents=True)
+    (real_bin / "codex").write_text("#!/bin/sh\n")
+    (real_bin / "codex").chmod(0o755)
+    monkeypatch.setenv("PATH", f"{wrapper_bin}:{real_bin}")
+
+    assert resolve_real_codex(str(tmp_path / "missing" / "codex"), wrapper_bin) == real_bin / "codex"
 
 
 def test_build_instance_env_sets_isolated_directories(tmp_path) -> None:
