@@ -5,7 +5,7 @@ from codex_switch.cli import app
 
 
 def test_package_exposes_version() -> None:
-    assert __version__ == "0.1.1"
+    assert __version__ == "0.1.2"
 
 
 def test_cli_app_displays_help() -> None:
