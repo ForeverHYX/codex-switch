@@ -52,6 +52,7 @@ Once setup is done, day-to-day usage stays the same:
 ```bash
 codex "review this branch"
 codex exec "make test"
+codex-switch list
 ```
 
 ## How it works
