@@ -131,7 +131,7 @@ def test_probe_instance_handles_tty_only_codex_process(tmp_path) -> None:
     assert result.quota_remaining == 42
 
 
-def test_probe_instance_falls_back_to_logged_in_account_when_quota_parse_fails(
+def test_probe_instance_requires_relogin_when_quota_cannot_be_verified(
     tmp_path, monkeypatch
 ) -> None:
     instance = InstanceConfig(
@@ -155,6 +155,43 @@ def test_probe_instance_falls_back_to_logged_in_account_when_quota_parse_fails(
 
     result = probe_instance("/usr/local/bin/codex", instance)
 
+    assert result.ok is False
+    assert result.quota_remaining is None
+    assert "quota could not be verified" in (result.reason or "").lower()
+    assert "codex-switch login acct-001" in (result.reason or "")
+
+
+def test_probe_instance_uses_cached_rate_limits_when_status_probe_fails(
+    tmp_path, monkeypatch
+) -> None:
+    instance_home = tmp_path / "home"
+    session_dir = instance_home / ".codex" / "sessions" / "2026" / "04" / "08"
+    session_dir.mkdir(parents=True)
+    (session_dir / "rollout.jsonl").write_text(
+        '{"timestamp":"2026-04-08T02:00:00Z","type":"event_msg","payload":{"type":"token_count","rate_limits":{"limit_id":"codex","plan_type":"plus","primary":{"used_percent":12,"window_minutes":300,"resets_at":4070908800},"secondary":{"used_percent":21,"window_minutes":10080,"resets_at":4071513600}}}}\n'
+    )
+
+    instance = InstanceConfig(
+        name="acct-001",
+        order=1,
+        home_dir=str(instance_home),
+    )
+
+    monkeypatch.setattr(
+        "codex_switch.probe._run_status_probe",
+        lambda *args, **kwargs: (1, "permission denied"),
+    )
+    monkeypatch.setattr(
+        "codex_switch.probe.login_status",
+        lambda *args, **kwargs: LoginStatus(
+            logged_in=True,
+            output="Logged in using ChatGPT",
+            returncode=0,
+        ),
+    )
+
+    result = probe_instance("/usr/local/bin/codex", instance)
+
     assert result.ok is True
-    assert result.quota_remaining == 0
-    assert "falling back" in (result.reason or "").lower()
+    assert result.quota_remaining == 88
+    assert "cached rate limits" in (result.reason or "").lower()

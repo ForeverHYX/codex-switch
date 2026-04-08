@@ -8,8 +8,14 @@ import subprocess
 import time
 from pathlib import Path
 
-from codex_switch.auth import CodexCommandError, login_status
+from codex_switch.auth import CodexCommandError, login_status, relogin_message
 from codex_switch.models import InstanceConfig, ProbeResult
+from codex_switch.rate_limits import (
+    FIVE_HOUR_WINDOW_MINS,
+    SEVEN_DAY_WINDOW_MINS,
+    read_cached_rate_limits,
+    select_window_for_duration,
+)
 from codex_switch.runtime import build_instance_env
 
 
@@ -27,6 +33,8 @@ READY_PATTERNS = (
 ANSI_ESCAPE_RE = re.compile(
     r"\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07]*(?:\x07|\x1b\\)|\x1b[@-_]"
 )
+NOT_LOGGED_IN_REASON = "is not logged in"
+UNVERIFIED_QUOTA_REASON = "appears logged in but quota could not be verified"
 
 
 def parse_remaining_quota(output: str) -> int:
@@ -63,7 +71,37 @@ def _looks_ready(output: str) -> bool:
     return any(pattern in output for pattern in READY_PATTERNS)
 
 
-def _fallback_logged_in_result(
+def _remaining_percent(window) -> int | None:
+    if window is None:
+        return None
+    if window.resets_at is not None and window.resets_at <= int(time.time()):
+        return 100
+    return window.remaining_percent
+
+
+def _cached_quota_remaining(instance: InstanceConfig) -> int | None:
+    snapshot = read_cached_rate_limits(instance)
+    if snapshot is None:
+        return None
+
+    primary = select_window_for_duration(
+        snapshot,
+        FIVE_HOUR_WINDOW_MINS,
+        fallback="primary",
+    )
+    remaining = _remaining_percent(primary)
+    if remaining is not None:
+        return remaining
+
+    secondary = select_window_for_duration(
+        snapshot,
+        SEVEN_DAY_WINDOW_MINS,
+        fallback="secondary",
+    )
+    return _remaining_percent(secondary)
+
+
+def _fallback_probe_result(
     real_codex_path: str,
     instance: InstanceConfig,
     reason: str,
@@ -73,13 +111,25 @@ def _fallback_logged_in_result(
     except CodexCommandError:
         return None
     if not status.logged_in:
-        return None
-    return ProbeResult(
-        instance_name=instance.name,
-        order=instance.order,
-        quota_remaining=0,
-        ok=True,
-        reason=f"{reason}. Falling back to login-only availability.",
+        return _failure(
+            instance,
+            f"{reason}. Instance {instance.name} {NOT_LOGGED_IN_REASON}. {relogin_message(instance.name)}",
+        )
+    cached_quota_remaining = _cached_quota_remaining(instance)
+    if cached_quota_remaining is not None:
+        return ProbeResult(
+            instance_name=instance.name,
+            order=instance.order,
+            quota_remaining=cached_quota_remaining,
+            ok=True,
+            reason=f"{reason}. Falling back to cached rate limits availability.",
+        )
+    return _failure(
+        instance,
+        (
+            f"{reason}. Instance {instance.name} {UNVERIFIED_QUOTA_REASON}. "
+            f"{relogin_message(instance.name)}"
+        ),
     )
 
 
@@ -206,7 +256,7 @@ def probe_instance(real_codex_path: str, instance: InstanceConfig) -> ProbeResul
     except FileNotFoundError as exc:
         return _failure(instance, f"Probe could not launch the real Codex binary: {exc}")
     except subprocess.TimeoutExpired:
-        fallback = _fallback_logged_in_result(
+        fallback = _fallback_probe_result(
             real_codex_path,
             instance,
             "Probe timed out",
@@ -216,7 +266,7 @@ def probe_instance(real_codex_path: str, instance: InstanceConfig) -> ProbeResul
         return _failure(instance, "Probe timed out")
 
     if returncode != 0:
-        fallback = _fallback_logged_in_result(
+        fallback = _fallback_probe_result(
             real_codex_path,
             instance,
             f"Probe exited with exit code {returncode}",
@@ -228,7 +278,7 @@ def probe_instance(real_codex_path: str, instance: InstanceConfig) -> ProbeResul
     try:
         remaining = parse_remaining_quota(output)
     except ValueError as exc:
-        fallback = _fallback_logged_in_result(real_codex_path, instance, str(exc))
+        fallback = _fallback_probe_result(real_codex_path, instance, str(exc))
         if fallback is not None:
             return fallback
         return _failure(instance, str(exc))

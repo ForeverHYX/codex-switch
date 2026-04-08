@@ -4,7 +4,7 @@ from codex_switch.cli import app
 from codex_switch.config import save_config
 from codex_switch.doctor import DoctorReport, create_doctor_report
 from codex_switch.install import install_shim, uninstall_shim
-from codex_switch.models import AppConfig, InstanceConfig
+from codex_switch.models import AppConfig, InstanceConfig, ProbeResult
 from codex_switch.paths import config_path
 
 
@@ -23,6 +23,7 @@ def test_create_doctor_report_recovers_stale_binary_and_reports_health(
 ) -> None:
     state_home = tmp_path / "state"
     monkeypatch.setenv("CODEX_SWITCH_HOME", str(state_home))
+    monkeypatch.delenv("CODEX_SWITCH_SHIM_DIR", raising=False)
     home = tmp_path / "home"
     monkeypatch.setenv("HOME", str(home))
     wrapper_bin = home / ".local" / "bin"
@@ -47,6 +48,15 @@ def test_create_doctor_report_recovers_stale_binary_and_reports_health(
                 )
             ],
         )
+    )
+    monkeypatch.setattr(
+        "codex_switch.doctor.probe_instance",
+        lambda *args, **kwargs: ProbeResult(
+            instance_name="acct-001",
+            order=1,
+            quota_remaining=33,
+            ok=True,
+        ),
     )
 
     report = create_doctor_report()

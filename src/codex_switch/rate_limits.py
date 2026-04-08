@@ -4,6 +4,7 @@ import json
 import select
 import subprocess
 import time
+from collections import deque
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -17,6 +18,8 @@ INITIALIZE_REQUEST_ID = 1
 RATE_LIMITS_REQUEST_ID = 2
 FIVE_HOUR_WINDOW_MINS = 300
 SEVEN_DAY_WINDOW_MINS = 10080
+RECENT_SESSION_FILE_LIMIT = 5
+RECENT_SESSION_LINE_LIMIT = 512
 
 
 @dataclass(slots=True)
@@ -73,19 +76,39 @@ def _write_request(
     method: str,
     params: object,
 ) -> None:
+    _write_message(
+        process,
+        {
+            "jsonrpc": "2.0",
+            "id": request_id,
+            "method": method,
+            "params": params,
+        },
+    )
+
+
+def _write_notification(
+    process: subprocess.Popen[str],
+    method: str,
+    params: object,
+) -> None:
+    _write_message(
+        process,
+        {
+            "jsonrpc": "2.0",
+            "method": method,
+            "params": params,
+        },
+    )
+
+
+def _write_message(
+    process: subprocess.Popen[str],
+    payload: dict[str, object],
+) -> None:
     if process.stdin is None:
         raise CodexCommandError("Codex app-server stdin is unavailable")
-    process.stdin.write(
-        json.dumps(
-            {
-                "jsonrpc": "2.0",
-                "id": request_id,
-                "method": method,
-                "params": params,
-            }
-        )
-        + "\n"
-    )
+    process.stdin.write(json.dumps(payload) + "\n")
     process.stdin.flush()
 
 
@@ -177,6 +200,46 @@ def _parse_snapshot(payload: dict[str, object]) -> RateLimitSnapshot:
     )
 
 
+def _parse_cached_window(payload: object) -> RateLimitWindow | None:
+    if payload is None:
+        return None
+    if not isinstance(payload, dict):
+        raise CodexCommandError("Cached rate limit window payload is malformed")
+
+    used_percent = payload.get("used_percent")
+    if not isinstance(used_percent, (int, float)) or isinstance(used_percent, bool):
+        raise CodexCommandError("Cached rate limit window is missing used_percent")
+
+    window_duration_mins = payload.get("window_minutes")
+    if window_duration_mins is not None and (
+        not isinstance(window_duration_mins, int) or isinstance(window_duration_mins, bool)
+    ):
+        raise CodexCommandError("Cached rate limit window has an invalid window_minutes")
+
+    resets_at = payload.get("resets_at")
+    if resets_at is not None and (not isinstance(resets_at, int) or isinstance(resets_at, bool)):
+        raise CodexCommandError("Cached rate limit window has an invalid resets_at")
+
+    return RateLimitWindow(
+        used_percent=int(used_percent),
+        window_duration_mins=window_duration_mins,
+        resets_at=resets_at,
+    )
+
+
+def _parse_cached_snapshot(payload: object) -> RateLimitSnapshot:
+    if not isinstance(payload, dict):
+        raise CodexCommandError("Cached rate limit snapshot payload is malformed")
+
+    return RateLimitSnapshot(
+        limit_id=payload.get("limit_id") if isinstance(payload.get("limit_id"), str) else None,
+        limit_name=payload.get("limit_name") if isinstance(payload.get("limit_name"), str) else None,
+        plan_type=payload.get("plan_type") if isinstance(payload.get("plan_type"), str) else None,
+        primary=_parse_cached_window(payload.get("primary")),
+        secondary=_parse_cached_window(payload.get("secondary")),
+    )
+
+
 def _select_snapshot(result_payload: dict[str, object]) -> dict[str, object]:
     by_limit = result_payload.get("rateLimitsByLimitId")
     if isinstance(by_limit, dict):
@@ -204,10 +267,10 @@ def read_rate_limits(
             INITIALIZE_REQUEST_ID,
             "initialize",
             {
-                "clientInfo": {
-                    "name": "codex-switch",
-                    "version": "0.1.3",
-                },
+                    "clientInfo": {
+                        "name": "codex-switch",
+                        "version": "0.1.4",
+                    },
                 "capabilities": {
                     "experimentalApi": True,
                 },
@@ -217,6 +280,7 @@ def read_rate_limits(
             process, INITIALIZE_REQUEST_ID, timeout=max(1.0, timeout / 2)
         )
         _extract_result(init_payload, "initialize")
+        _write_notification(process, "initialized", {})
 
         _write_request(process, RATE_LIMITS_REQUEST_ID, "account/rateLimits/read", None)
         rate_limit_payload = _read_response(
@@ -237,6 +301,47 @@ def read_rate_limits(
             process.wait(timeout=1)
 
 
+def _recent_session_paths(codex_home: Path) -> list[Path]:
+    sessions_root = codex_home / "sessions"
+    if not sessions_root.exists():
+        return []
+    return sorted(sessions_root.rglob("*.jsonl"), reverse=True)[:RECENT_SESSION_FILE_LIMIT]
+
+
+def _read_recent_lines(path: Path) -> list[str]:
+    with path.open("r", encoding="utf-8") as handle:
+        return list(deque(handle, maxlen=RECENT_SESSION_LINE_LIMIT))
+
+
+def read_cached_rate_limits(instance: InstanceConfig) -> RateLimitSnapshot | None:
+    codex_home = Path(instance.home_dir) / ".codex"
+    for path in _recent_session_paths(codex_home):
+        try:
+            recent_lines = _read_recent_lines(path)
+        except OSError:
+            continue
+
+        for line in reversed(recent_lines):
+            if '"rate_limits"' not in line:
+                continue
+            try:
+                payload = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+
+            event_payload = payload.get("payload")
+            if not isinstance(event_payload, dict):
+                continue
+
+            snapshot = event_payload.get("rate_limits")
+            try:
+                return _parse_cached_snapshot(snapshot)
+            except CodexCommandError:
+                continue
+
+    return None
+
+
 def read_instance_rate_limits(
     real_codex_path: str | Path,
     instance: InstanceConfig,
@@ -244,6 +349,14 @@ def read_instance_rate_limits(
     try:
         snapshot = read_rate_limits(real_codex_path, instance)
     except CodexCommandError as exc:
+        cached_snapshot = read_cached_rate_limits(instance)
+        if cached_snapshot is not None:
+            return InstanceRateLimitResult(
+                instance_name=instance.name,
+                ok=True,
+                snapshot=cached_snapshot,
+                reason=f"Using cached rate limits after live read failed: {exc}",
+            )
         return InstanceRateLimitResult(
             instance_name=instance.name,
             ok=False,

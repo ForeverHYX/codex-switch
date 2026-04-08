@@ -15,8 +15,11 @@ from codex_switch.config import (
 from codex_switch.install import runtime_wrapper_dir
 from codex_switch.models import AppConfig
 from codex_switch.models import ProbeResult
-from codex_switch.paths import shim_dir
-from codex_switch.probe import probe_instance
+from codex_switch.probe import (
+    NOT_LOGGED_IN_REASON,
+    UNVERIFIED_QUOTA_REASON,
+    probe_instance,
+)
 from codex_switch.routing import select_best_instance
 from codex_switch.runtime import build_instance_env, find_real_codex, resolve_real_codex
 from codex_switch.wizard import bootstrap_from_prompt
@@ -39,6 +42,30 @@ def probe_all_instances(config) -> list[ProbeResult]:
 def _fail(message: str) -> int:
     print(f"Error: {message}", file=sys.stderr)
     return 1
+
+
+def _probe_failures_with_reason(results: list[ProbeResult], marker: str) -> list[ProbeResult]:
+    return [
+        result
+        for result in results
+        if not result.ok and result.reason is not None and marker in result.reason
+    ]
+
+
+def _format_probe_failures(results: list[ProbeResult]) -> str:
+    reasons: list[str] = []
+    seen = set()
+    for result in results:
+        if result.reason is None or result.reason in seen:
+            continue
+        reasons.append(result.reason)
+        seen.add(result.reason)
+
+    if not reasons:
+        return "No usable Codex account instances are available"
+    if len(reasons) == 1:
+        return reasons[0]
+    return "\n".join(reasons)
 
 
 def _resolve_instance(config, selected_instance_name: str):
@@ -96,12 +123,20 @@ def main(argv: list[str] | None = None) -> int:
         real_codex_path=str(resolved_real_codex),
         instances=config.instances,
     )
+    results = probe_all_instances(probe_config)
+
+    unverified_results = _probe_failures_with_reason(results, UNVERIFIED_QUOTA_REASON)
+    if unverified_results:
+        return _fail(_format_probe_failures(unverified_results))
 
     try:
-        selected = select_best_instance(probe_all_instances(probe_config))
+        selected = select_best_instance(results)
     except FileNotFoundError as exc:
         return _fail(f"Unable to locate the real Codex binary: {exc}")
     except (RuntimeError, StopIteration) as exc:
+        logged_out_results = _probe_failures_with_reason(results, NOT_LOGGED_IN_REASON)
+        if logged_out_results:
+            return _fail(_format_probe_failures(logged_out_results))
         return _fail(str(exc))
 
     try:

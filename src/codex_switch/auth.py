@@ -24,6 +24,10 @@ class CodexCommandError(RuntimeError):
     pass
 
 
+def relogin_message(instance_name: str) -> str:
+    return f"Run `codex-switch login {instance_name}` to re-login."
+
+
 def _run_codex(
     real_codex_path: str | Path,
     instance: InstanceConfig,

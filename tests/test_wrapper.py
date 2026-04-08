@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from codex_switch.config import save_config
-from codex_switch.models import AppConfig, InstanceConfig
+from codex_switch.models import AppConfig, InstanceConfig, ProbeResult
 from codex_switch.wrapper import main
 
 
@@ -110,6 +110,94 @@ def test_wrapper_reports_routing_failure(tmp_path, monkeypatch, capsys) -> None:
     captured = capsys.readouterr()
     assert exit_code == 1
     assert "No usable Codex account instances are available" in captured.err
+
+
+def test_wrapper_requires_relogin_when_quota_cannot_be_verified(
+    tmp_path, monkeypatch, capsys
+) -> None:
+    monkeypatch.setenv("CODEX_SWITCH_HOME", str(tmp_path))
+
+    save_config(
+        AppConfig(
+            real_codex_path="/usr/bin/python3",
+            instances=[
+                InstanceConfig(name="acct-001", order=1, home_dir=str(tmp_path / "acct-001")),
+                InstanceConfig(name="acct-002", order=2, home_dir=str(tmp_path / "acct-002")),
+            ],
+        )
+    )
+    monkeypatch.setattr(
+        "codex_switch.wrapper.probe_all_instances",
+        lambda config: [
+            ProbeResult(instance_name="acct-001", order=1, quota_remaining=12, ok=True),
+            ProbeResult(
+                instance_name="acct-002",
+                order=2,
+                quota_remaining=None,
+                ok=False,
+                reason=(
+                    "Probe exited with exit code 1. Instance acct-002 appears logged in "
+                    "but quota could not be verified. Run `codex-switch login acct-002` "
+                    "to re-login."
+                ),
+            ),
+        ],
+    )
+
+    exit_code = main(["review"])
+
+    captured = capsys.readouterr()
+    assert exit_code == 1
+    assert "quota could not be verified" in captured.err
+    assert "codex-switch login acct-002" in captured.err
+
+
+def test_wrapper_reports_relogin_when_no_instance_is_logged_in(
+    tmp_path, monkeypatch, capsys
+) -> None:
+    monkeypatch.setenv("CODEX_SWITCH_HOME", str(tmp_path))
+
+    save_config(
+        AppConfig(
+            real_codex_path="/usr/bin/python3",
+            instances=[
+                InstanceConfig(name="acct-001", order=1, home_dir=str(tmp_path / "acct-001")),
+                InstanceConfig(name="acct-002", order=2, home_dir=str(tmp_path / "acct-002")),
+            ],
+        )
+    )
+    monkeypatch.setattr(
+        "codex_switch.wrapper.probe_all_instances",
+        lambda config: [
+            ProbeResult(
+                instance_name="acct-001",
+                order=1,
+                quota_remaining=None,
+                ok=False,
+                reason=(
+                    "Probe timed out. Instance acct-001 is not logged in. "
+                    "Run `codex-switch login acct-001` to re-login."
+                ),
+            ),
+            ProbeResult(
+                instance_name="acct-002",
+                order=2,
+                quota_remaining=None,
+                ok=False,
+                reason=(
+                    "Probe timed out. Instance acct-002 is not logged in. "
+                    "Run `codex-switch login acct-002` to re-login."
+                ),
+            ),
+        ],
+    )
+
+    exit_code = main(["review"])
+
+    captured = capsys.readouterr()
+    assert exit_code == 1
+    assert "codex-switch login acct-001" in captured.err
+    assert "codex-switch login acct-002" in captured.err
 
 
 def test_wrapper_reports_missing_real_codex_binary(tmp_path, monkeypatch, capsys) -> None:

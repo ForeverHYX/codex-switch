@@ -39,7 +39,12 @@ def _is_preferred_install_dir(path: Path, home_dir: Path) -> bool:
 
 
 def preferred_shim_dir(path_env: str | None = None) -> Path:
-    home_dir = Path.home().expanduser().resolve()
+    home_value = os.environ.get("HOME")
+    home_dir = (
+        Path(home_value).expanduser().resolve()
+        if home_value
+        else Path.home().expanduser().resolve()
+    )
     for entry in _path_entries(path_env):
         if _is_preferred_install_dir(entry, home_dir):
             return entry

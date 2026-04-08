@@ -61,6 +61,70 @@ def test_read_rate_limits_returns_structured_windows(tmp_path, fake_codex_path: 
     assert snapshot.secondary.window_duration_mins == 10080
 
 
+def test_read_cached_rate_limits_returns_latest_session_snapshot(tmp_path) -> None:
+    from codex_switch.rate_limits import read_cached_rate_limits
+
+    home = tmp_path / "acct-001"
+    older_dir = home / ".codex" / "sessions" / "2026" / "04" / "07"
+    latest_dir = home / ".codex" / "sessions" / "2026" / "04" / "08"
+    older_dir.mkdir(parents=True)
+    latest_dir.mkdir(parents=True)
+
+    (older_dir / "rollout-old.jsonl").write_text(
+        "\n".join(
+            [
+                '{"timestamp":"2026-04-07T01:00:00Z","type":"event_msg","payload":{"type":"token_count","rate_limits":{"limit_id":"codex","plan_type":"plus","primary":{"used_percent":60,"window_minutes":300,"resets_at":1775500000},"secondary":{"used_percent":25,"window_minutes":10080,"resets_at":1776000000}}}}',
+            ]
+        )
+    )
+    (latest_dir / "rollout-new.jsonl").write_text(
+        "\n".join(
+            [
+                '{"timestamp":"2026-04-08T02:00:00Z","type":"event_msg","payload":{"type":"token_count","rate_limits":{"limit_id":"codex","plan_type":"plus","primary":{"used_percent":17,"window_minutes":300,"resets_at":1775600000},"secondary":{"used_percent":9,"window_minutes":10080,"resets_at":1776200000}}}}',
+            ]
+        )
+    )
+
+    instance = InstanceConfig(name="acct-001", order=1, home_dir=str(home))
+
+    snapshot = read_cached_rate_limits(instance)
+
+    assert snapshot is not None
+    assert snapshot.plan_type == "plus"
+    assert snapshot.primary is not None
+    assert snapshot.primary.used_percent == 17
+    assert snapshot.secondary is not None
+    assert snapshot.secondary.used_percent == 9
+
+
+def test_read_instance_rate_limits_falls_back_to_cached_snapshot(tmp_path, monkeypatch) -> None:
+    from codex_switch.auth import CodexCommandError
+    from codex_switch.rate_limits import read_instance_rate_limits
+
+    home = tmp_path / "acct-001"
+    session_dir = home / ".codex" / "sessions" / "2026" / "04" / "08"
+    session_dir.mkdir(parents=True)
+    (session_dir / "rollout.jsonl").write_text(
+        '{"timestamp":"2026-04-08T02:00:00Z","type":"event_msg","payload":{"type":"token_count","rate_limits":{"limit_id":"codex","plan_type":"plus","primary":{"used_percent":24,"window_minutes":300,"resets_at":1775600000},"secondary":{"used_percent":11,"window_minutes":10080,"resets_at":1776200000}}}}\n'
+    )
+
+    instance = InstanceConfig(name="acct-001", order=1, home_dir=str(home))
+    monkeypatch.setattr(
+        "codex_switch.rate_limits.read_rate_limits",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            CodexCommandError("Timed out while reading account rate limits")
+        ),
+    )
+
+    result = read_instance_rate_limits("/usr/local/bin/codex", instance)
+
+    assert result.ok is True
+    assert result.snapshot is not None
+    assert result.snapshot.primary is not None
+    assert result.snapshot.primary.used_percent == 24
+    assert "cached rate limits" in (result.reason or "").lower()
+
+
 def test_list_command_displays_live_rate_limits(tmp_path, monkeypatch) -> None:
     from codex_switch.rate_limits import (
         InstanceRateLimitResult,
@@ -121,4 +185,3 @@ def test_list_command_displays_live_rate_limits(tmp_path, monkeypatch) -> None:
     assert "71%" in result.stdout
     assert "acct-002" in result.stdout
     assert "unavailable" in result.stdout
-

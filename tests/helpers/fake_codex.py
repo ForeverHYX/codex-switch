@@ -61,6 +61,9 @@ def _handle_app_server(home: Path) -> int:
             )
             continue
 
+        if method == "initialized":
+            continue
+
         if method == "account/rateLimits/read":
             payload_path = home / "rate-limits.json"
             payload = (
